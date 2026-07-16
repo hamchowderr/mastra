@@ -39,7 +39,8 @@ export interface StartFactoryRunWorkItem {
   metadata?: Record<string, unknown>;
 }
 
-const factoryRunMutationKey = (resourceId: string) => ['factory', 'start-run', resourceId] as const;
+const factoryRunMutationKey = (resourceId: string, projectId: string | undefined) =>
+  ['factory', 'start-run', resourceId, projectId] as const;
 
 export interface PendingFactoryRun {
   id?: string;
@@ -95,7 +96,7 @@ export function useStartFactoryRun() {
   });
 
   const mutation = useMutation({
-    mutationKey: factoryRunMutationKey(resourceId),
+    mutationKey: factoryRunMutationKey(resourceId, activeProject?.id),
     mutationFn: async ({ branch, threadTitle, threadTags, prompt, workItem }: StartFactoryRunInput) => {
       const updatedProject = await createWorkspace.mutateAsync(branch);
       queryClient.setQueryData(queryKeys.projects(), (projects: Project[] | undefined) =>
@@ -183,7 +184,7 @@ export function useStartFactoryRun() {
   });
 
   const pendingRuns = useMutationState({
-    filters: { mutationKey: factoryRunMutationKey(resourceId), status: 'pending' },
+    filters: { mutationKey: factoryRunMutationKey(resourceId, activeProject?.id), status: 'pending' },
     select: pending => toPendingFactoryRun(pending.state.variables),
   }).filter(run => run !== undefined);
 
