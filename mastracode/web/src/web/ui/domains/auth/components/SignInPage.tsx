@@ -11,7 +11,7 @@ import { redirectToLogin } from '../services/auth';
  * user to an external site after login. `//host` is protocol-relative, so it
  * is rejected too.
  */
-function safeReturnTo(raw?: string): string {
+export function safeReturnTo(raw?: string): string {
   if (raw && raw.startsWith('/') && !raw.startsWith('//')) return raw;
   return '/';
 }
