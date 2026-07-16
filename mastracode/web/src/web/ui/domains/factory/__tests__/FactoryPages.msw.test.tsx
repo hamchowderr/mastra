@@ -1084,7 +1084,7 @@ describe('Factory Board — persisted cards', () => {
       expect(await screen.findByRole('menuitem', { name: 'Investigate' })).not.toHaveAttribute('aria-disabled', 'true');
     } finally {
       releaseWorktree();
-      await waitFor(() => expect(captured.messages).toHaveLength(1));
+      await waitFor(() => expect(captured.skillInvocations).toHaveLength(1));
     }
   });
 
@@ -1173,7 +1173,7 @@ describe('Factory Board — persisted cards', () => {
     } finally {
       releaseSecond();
       releaseFirst();
-      await waitFor(() => expect(captured.messages).toHaveLength(1));
+      await waitFor(() => expect(captured.skillInvocations).toHaveLength(1));
     }
   });
 
@@ -1229,7 +1229,7 @@ describe('Factory Board — persisted cards', () => {
       expect(await screen.findAllByRole('menuitem', { name: 'Starting…' })).toHaveLength(2);
     } finally {
       releaseWorktrees();
-      await waitFor(() => expect(captured.messages).toHaveLength(2));
+      await waitFor(() => expect(captured.skillInvocations.length + captured.messages.length).toBe(2));
     }
   });
 
@@ -1464,7 +1464,7 @@ describe('Factory Board — investigate flow', () => {
       expect(await screen.findByRole('menuitem', { name: 'Custom prompt…' })).toHaveAttribute('aria-disabled', 'true');
     } finally {
       releaseWorktree();
-      await waitFor(() => expect(captured.messages).toHaveLength(1));
+      await waitFor(() => expect(captured.skillInvocations).toHaveLength(1));
     }
   });
 
