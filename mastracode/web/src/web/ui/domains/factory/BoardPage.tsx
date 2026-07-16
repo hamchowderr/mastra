@@ -459,6 +459,7 @@ function Board({ project }: { project: Project & { githubProjectId: string } }) 
   }
 
   const mutationError = [start, triage, upsert, update, remove, selectWorkspace].find(m => m.isError)?.error;
+  const pendingRunWorkItem = start.isPending ? start.variables?.workItem : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -504,8 +505,8 @@ function Board({ project }: { project: Project & { githubProjectId: string } }) 
                   item={item}
                   columnStage={stage.id}
                   liveWorktreePaths={liveWorktreePaths}
-                  runDisabled={!runEnabled || start.isPending}
-                  runStarting={start.isPending}
+                  runDisabled={!runEnabled}
+                  pendingRunRole={pendingRunWorkItem?.id === item.id ? pendingRunWorkItem.role : undefined}
                   onOpenThread={session => void openThread(session)}
                   onStartRun={(spec, action) =>
                     start.mutate({
@@ -534,11 +535,11 @@ function Board({ project }: { project: Project & { githubProjectId: string } }) 
                 <CandidateCard
                   key={candidate.sourceKey}
                   candidate={candidate}
-                  starting={
-                    (start.isPending && start.variables?.branch === candidate.branch) ||
-                    (triage.isPending && triage.variables?.number === candidate.issue?.number)
+                  pendingRunRole={
+                    pendingRunWorkItem?.sourceKey === candidate.sourceKey ? pendingRunWorkItem.role : undefined
                   }
-                  disabled={!runEnabled || start.isPending || triage.isPending}
+                  triageStarting={triage.isPending && triage.variables?.number === candidate.issue?.number}
+                  disabled={!runEnabled}
                   onRun={(action, prompt) =>
                     start.mutate({
                       branch: candidate.branch,
@@ -649,7 +650,7 @@ function WorkItemCard({
   columnStage,
   liveWorktreePaths,
   runDisabled,
-  runStarting,
+  pendingRunRole,
   onOpenThread,
   onStartRun,
   onMove,
@@ -660,7 +661,7 @@ function WorkItemCard({
   /** Worktrees that still exist; session refs outside this set are stale. */
   liveWorktreePaths: ReadonlySet<string>;
   runDisabled: boolean;
-  runStarting: boolean;
+  pendingRunRole?: string;
   onOpenThread: (session: WorkItemSessionRef) => void;
   onStartRun: (spec: ItemRunSpec, action: RunAction) => void;
   onMove: (toStage: string) => void;
@@ -710,15 +711,18 @@ function WorkItemCard({
           />
           <DropdownMenu.Content align="end" className="min-w-44">
             {runSpec !== null &&
-              runActions.map(action => (
-                <DropdownMenu.Item
-                  key={action.label}
-                  disabled={runDisabled}
-                  onClick={() => onStartRun(runSpec, action)}
-                >
-                  {runStarting ? 'Starting…' : action.label}
-                </DropdownMenu.Item>
-              ))}
+              runActions.map(action => {
+                const starting = pendingRunRole === action.role;
+                return (
+                  <DropdownMenu.Item
+                    key={action.label}
+                    disabled={runDisabled || starting}
+                    onClick={() => onStartRun(runSpec, action)}
+                  >
+                    {starting ? 'Starting…' : action.label}
+                  </DropdownMenu.Item>
+                );
+              })}
             {BOARD_STAGES.filter(stage => stage.id !== columnStage).map(stage => (
               <DropdownMenu.Item key={stage.id} onClick={() => onMove(stage.id)}>
                 {stage.id === 'done' ? 'Mark done' : `Move to ${stage.label}`}
@@ -756,14 +760,16 @@ function WorkItemCard({
 
 function CandidateCard({
   candidate,
-  starting,
+  pendingRunRole,
+  triageStarting,
   disabled,
   onRun,
   onFile,
   onTriage,
 }: {
   candidate: BoardCandidate;
-  starting: boolean;
+  pendingRunRole?: string;
+  triageStarting: boolean;
   disabled: boolean;
   /** Start a run; `prompt` undefined = the action's default prompt. */
   onRun: (action: RunAction, prompt?: string) => void;
@@ -805,14 +811,22 @@ function CandidateCard({
       <FactoryItemActions
         actionLabel={defaultAction.label}
         itemLabel={candidate.title}
-        starting={starting}
+        starting={pendingRunRole === defaultAction.role}
         disabled={disabled}
         onAction={() => onRun(defaultAction)}
-        extraActions={otherActions.map(action => ({ label: action.label, onAction: () => onRun(action) }))}
+        extraActions={otherActions.map(action => ({
+          label: action.label,
+          starting: pendingRunRole === action.role,
+          onAction: () => onRun(action),
+        }))}
         onRunPrompt={prompt => onRun(defaultAction, prompt)}
         menuExtras={
           <>
-            {showTriage && <DropdownMenu.Item onClick={onTriage}>Triage issue</DropdownMenu.Item>}
+            {showTriage && (
+              <DropdownMenu.Item disabled={triageStarting} onClick={onTriage}>
+                {triageStarting ? 'Starting…' : 'Triage issue'}
+              </DropdownMenu.Item>
+            )}
             <DropdownMenu.Item onClick={onFile}>Add to board</DropdownMenu.Item>
           </>
         }
