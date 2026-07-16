@@ -160,6 +160,7 @@ const prepared = await prepareAgentControllerMount({
     ...(authProvider ? buildAuthRoutes(authProvider, redirectUri) : []),
     // Custom `/web/*` routes (fs / config / github).
     ...assembleWebApiRoutes({
+      controllerId: CONTROLLER_ID,
       controller,
       authStorage,
       publicOrigin,
