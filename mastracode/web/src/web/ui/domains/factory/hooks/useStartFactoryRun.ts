@@ -1,5 +1,5 @@
 import type { AgentControllerMessage } from '@mastra/client-js';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 
 import { useApiConfig } from '../../../../../shared/api/config';
@@ -39,6 +39,27 @@ export interface StartFactoryRunWorkItem {
   metadata?: Record<string, unknown>;
 }
 
+const factoryRunMutationKey = (resourceId: string) => ['factory', 'start-run', resourceId] as const;
+
+export interface PendingFactoryRun {
+  id?: string;
+  sourceKey: string | null;
+  role: string;
+}
+
+function toPendingFactoryRun(value: unknown): PendingFactoryRun | undefined {
+  if (!isRecord(value) || !isRecord(value.workItem)) return undefined;
+  const { id, sourceKey, role } = value.workItem;
+  if (id !== undefined && typeof id !== 'string') return undefined;
+  if (sourceKey !== null && typeof sourceKey !== 'string') return undefined;
+  if (typeof role !== 'string') return undefined;
+  return { id, sourceKey, role };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export interface StartFactoryRunInput {
   /** Feature branch for the new worktree (e.g. `factory/issue-12`). */
   branch: string;
@@ -74,6 +95,7 @@ export function useStartFactoryRun() {
   });
 
   const mutation = useMutation({
+    mutationKey: factoryRunMutationKey(resourceId),
     mutationFn: async ({ branch, threadTitle, threadTags, prompt, workItem }: StartFactoryRunInput) => {
       const updatedProject = await createWorkspace.mutateAsync(branch);
       queryClient.setQueryData(queryKeys.projects(), (projects: Project[] | undefined) =>
@@ -160,7 +182,12 @@ export function useStartFactoryRun() {
     onSuccess: threadId => void navigate(`/threads/${threadId}`),
   });
 
-  return { start: mutation, enabled: sessionEnabled };
+  const pendingRuns = useMutationState({
+    filters: { mutationKey: factoryRunMutationKey(resourceId), status: 'pending' },
+    select: pending => toPendingFactoryRun(pending.state.variables),
+  }).filter(run => run !== undefined);
+
+  return { start: mutation, pendingRuns, enabled: sessionEnabled };
 }
 
 /**

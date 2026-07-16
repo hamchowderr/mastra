@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 
 import { useApiConfig } from '../../../../../shared/api/config';
 import { queryKeys } from '../../../../../shared/api/keys';
@@ -24,7 +24,9 @@ export function useProjectIssuesQuery(githubProjectId: string | undefined, label
 export function useStartIssueTriageMutation(githubProjectId: string | undefined) {
   const { baseUrl } = useApiConfig();
   const queryClient = useQueryClient();
-  return useMutation({
+  const mutationKey = ['factory', 'triage-issue', githubProjectId] as const;
+  const mutation = useMutation({
+    mutationKey,
     mutationFn: (issue: GithubIssue) => startProjectIssueTriage(baseUrl, githubProjectId!, issue),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues(githubProjectId) });
@@ -32,6 +34,19 @@ export function useStartIssueTriageMutation(githubProjectId: string | undefined)
       void queryClient.invalidateQueries({ queryKey: queryKeys.workItems(githubProjectId) });
     },
   });
+  const pendingIssueNumbers = useMutationState({
+    filters: { mutationKey, status: 'pending' },
+    select: pending => {
+      const variables = pending.state.variables;
+      return isGithubIssue(variables) ? variables.number : undefined;
+    },
+  }).filter(number => number !== undefined);
+  return { triage: mutation, pendingIssueNumbers };
+}
+
+function isGithubIssue(value: unknown): value is GithubIssue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return 'number' in value && typeof value.number === 'number';
 }
 
 /** Open (non-draft) pull requests for a GitHub project, one page at a time. */
