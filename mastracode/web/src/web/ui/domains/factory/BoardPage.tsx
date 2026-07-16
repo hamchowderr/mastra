@@ -203,7 +203,7 @@ function issueCandidate(issue: GithubIssue): BoardCandidate {
 
 function pullRequestCandidate(pr: GithubPullRequest): BoardCandidate {
   const ref = `GitHub pull request #${pr.number} (${pr.url})`;
-  const checkout = `Check out the PR in this worktree first with \`gh pr checkout ${pr.number}\`.`;
+  const checkout = `Check out the PR in this worktree first with \`gh pr checkout ${pr.number}\`. Expected head branch: ${pr.headBranch}.`;
   const base = `Review ${ref}. ${checkout}`;
   return {
     sourceKey: `github-pr:${pr.number}`,
@@ -222,7 +222,7 @@ function pullRequestCandidate(pr: GithubPullRequest): BoardCandidate {
         invocation: {
           type: 'skill',
           skillName: 'understand-pr',
-          arguments: ref,
+          arguments: `${ref}\n\n${checkout}`,
         },
       },
     ],
@@ -305,6 +305,7 @@ function itemRunSpec(item: WorkItem): ItemRunSpec | null {
   }
   if (item.source === 'github-pr' && typeof meta.number === 'number' && typeof meta.headBranch === 'string') {
     const ref = `GitHub pull request #${meta.number}${item.url ? ` (${item.url})` : ''}`;
+    const checkout = `Check out the PR in this worktree first with \`gh pr checkout ${meta.number}\`. Expected head branch: ${meta.headBranch}.`;
     return {
       branch: `factory/pr-${meta.number}`,
       threadTitle: `PR #${meta.number}: ${item.title}`,
@@ -316,7 +317,7 @@ function itemRunSpec(item: WorkItem): ItemRunSpec | null {
           invocation: {
             type: 'skill',
             skillName: 'understand-pr',
-            arguments: ref,
+            arguments: `${ref}\n\n${checkout}`,
           },
         },
       ],
