@@ -23,6 +23,7 @@ import {
   parseUpdateWorkItem,
   updateWorkItem,
   upsertWorkItem,
+  WorkItemRelationError,
 } from './store';
 
 function loose(c: unknown): Context {
@@ -121,13 +122,20 @@ export function buildFactoryRoutes(): ApiRoute[] {
         const input = parseCreateWorkItem(body);
         if (!input) return c.json({ error: 'invalid_work_item' }, 400);
 
-        const item = await upsertWorkItem({
-          orgId: resolved.orgId,
-          userId: resolved.userId,
-          githubProjectId: resolved.projectId,
-          input,
-        });
-        return c.json({ workItem: item });
+        try {
+          const item = await upsertWorkItem({
+            orgId: resolved.orgId,
+            userId: resolved.userId,
+            githubProjectId: resolved.projectId,
+            input,
+          });
+          return c.json({ workItem: item });
+        } catch (error) {
+          if (error instanceof WorkItemRelationError) {
+            return c.json({ error: error.code, message: error.message }, 400);
+          }
+          throw error;
+        }
       },
     }),
 
@@ -147,9 +155,16 @@ export function buildFactoryRoutes(): ApiRoute[] {
         const patch = parseUpdateWorkItem(body);
         if (!patch) return c.json({ error: 'invalid_work_item_patch' }, 400);
 
-        const item = await updateWorkItem(tenant.orgId, id, tenant.userId, patch);
-        if (!item) return c.json({ error: 'Work item not found' }, 404);
-        return c.json({ workItem: item });
+        try {
+          const item = await updateWorkItem(tenant.orgId, id, tenant.userId, patch);
+          if (!item) return c.json({ error: 'Work item not found' }, 404);
+          return c.json({ workItem: item });
+        } catch (error) {
+          if (error instanceof WorkItemRelationError) {
+            return c.json({ error: error.code, message: error.message }, 400);
+          }
+          throw error;
+        }
       },
     }),
 
