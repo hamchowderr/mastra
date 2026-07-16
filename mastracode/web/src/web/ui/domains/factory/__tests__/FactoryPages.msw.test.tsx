@@ -473,6 +473,14 @@ describe('Factory Board — Intake candidates', () => {
     expect(within(intake).queryByRole('link', { name: 'Create GitHub issue' })).not.toBeInTheDocument();
   });
 
+  it('given the project name is not a canonical GitHub repository, when the Board renders, then no issue URL is invented', async () => {
+    useBoardHandlers();
+    renderAt('/factory/board', { ...githubProject, name: '../not-a-repository' });
+
+    const intake = await screen.findByTestId('board-column-intake');
+    expect(within(intake).queryByRole('link', { name: 'Create GitHub issue' })).not.toBeInTheDocument();
+  });
+
   it('given the first board content is in Review, when all feeds settle, then the Board positions Review in view', async () => {
     useBoardHandlers();
     let resolvePullRequests!: () => void;
@@ -523,12 +531,13 @@ describe('Factory Board — Intake candidates', () => {
     HTMLElement.prototype.scrollTo = scrollTo;
 
     try {
-      renderAt('/factory/board');
+      const { client } = renderAt('/factory/board');
       fireEvent.wheel(await screen.findByLabelText('Board columns'));
       resolvePullRequests();
 
       expect(await within(column('review')).findByText('Add factory pages')).toBeInTheDocument();
-      await waitFor(() => expect(scrollTo).not.toHaveBeenCalled());
+      await client.invalidateQueries();
+      expect(scrollTo).not.toHaveBeenCalled();
     } finally {
       HTMLElement.prototype.scrollTo = originalScrollTo;
     }
