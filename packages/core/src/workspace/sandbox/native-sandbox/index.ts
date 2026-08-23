@@ -8,4 +8,5 @@ export * from './types';
 export * from './detect';
 export * from './seatbelt';
 export * from './bubblewrap';
+export * from './wsl2';
 export * from './wrapper';

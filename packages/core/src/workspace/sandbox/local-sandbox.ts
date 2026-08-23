@@ -7,6 +7,8 @@
  * Supports optional native OS sandboxing:
  * - macOS: Uses seatbelt (sandbox-exec) for filesystem and network isolation
  * - Linux: Uses bubblewrap (bwrap) for namespace isolation
+ * - Windows: Uses WSL2 to isolate execution from the Windows host, layering bwrap
+ *   inside the distro for namespace/network isolation when it's installed there
  */
 
 import * as crypto from 'node:crypto';
@@ -33,6 +35,7 @@ import {
   isIsolationAvailable,
   generateSeatbeltProfile,
   isGeneratedSeatbeltProfile,
+  checkWsl2Distro,
   wrapCommand,
 } from './native-sandbox';
 import type { SandboxCloneOptions } from './sandbox';
@@ -115,6 +118,8 @@ export interface LocalSandboxOptions extends Omit<MastraSandboxOptions, 'process
    * - 'none': No sandboxing (direct execution on host) - default
    * - 'seatbelt': macOS sandbox-exec (built-in on macOS)
    * - 'bwrap': Linux bubblewrap (requires installation)
+   * - 'wsl2': Windows Subsystem for Linux 2 (requires installation, a registered distro, and
+   *   that distro having WSL interop disabled — see `NativeSandboxConfig.wslDistro`)
    *
    * Use `LocalSandbox.detectIsolation()` to get the recommended backend.
    * @default 'none'
@@ -122,7 +127,7 @@ export interface LocalSandboxOptions extends Omit<MastraSandboxOptions, 'process
   isolation?: IsolationBackend;
   /**
    * Configuration for native sandboxing.
-   * Only used when isolation is 'seatbelt' or 'bwrap'.
+   * Only used when isolation is 'seatbelt', 'bwrap', or 'wsl2'.
    */
   nativeSandbox?: NativeSandboxConfig;
   /**
@@ -198,6 +203,8 @@ export class LocalSandbox extends MastraSandbox {
   private _customSeatbeltProfile?: string;
   /** Where the profile file lives on disk: the configured path, or one we generated. */
   private _seatbeltProfilePath?: string;
+  /** Whether `bwrap` was found inside the target WSL2 distro. Checked once, at start(). */
+  private _wsl2BwrapAvailable = false;
   private _sandboxFolderPath?: string;
   private readonly _createdAt: Date;
   private readonly _instructionsOverride?: InstructionsOption;
@@ -358,6 +365,22 @@ export class LocalSandbox extends MastraSandbox {
         this._seatbeltProfilePath = path.join(this._sandboxFolderPath, `seatbelt-${configHash}.sb`);
         await fs.writeFile(this._seatbeltProfilePath, generatedProfile, 'utf-8');
       }
+    }
+
+    // Verify the WSL2 distro is actually isolated before trusting it as a sandbox boundary.
+    if (this.isolation === 'wsl2') {
+      const distro = this._nativeSandboxConfig.wslDistro;
+      const { interopDisabled, bwrapAvailable } = await checkWsl2Distro(distro);
+      if (!interopDisabled) {
+        throw new IsolationUnavailableError(
+          'wsl2',
+          `WSL interop is enabled on ${distro ?? 'the default distro'} — a sandboxed command could invoke a ` +
+            `Windows .exe directly and step around the VM boundary. Disable it by adding "[interop]\\nenabled=false" ` +
+            `to that distro's /etc/wsl.conf and restarting it (wsl --terminate ${distro ?? '<distro>'}).`,
+        );
+      }
+      this._wsl2BwrapAvailable = bwrapAvailable;
+      this.logger.debug('WSL2 isolation verified', { distro, bwrapAvailable });
     }
 
     this.logger.debug('Sandbox started', { workingDirectory: this.workingDirectory });
@@ -991,6 +1014,7 @@ export class LocalSandbox extends MastraSandbox {
       // Undefined unless the user wrote their own profile file. wrapCommand() then generates
       // one from the current config, so mounts added after start() are in the allowlist.
       seatbeltProfile: this._customSeatbeltProfile,
+      wsl2BwrapAvailable: this._wsl2BwrapAvailable,
       config: this._nativeSandboxConfig,
     });
   }

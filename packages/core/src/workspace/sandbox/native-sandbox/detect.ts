@@ -45,6 +45,24 @@ export function isBwrapAvailable(): boolean {
 }
 
 /**
+ * Check if WSL2 is available.
+ * `wsl.exe` ships with Windows 10/11 once "Windows Subsystem for Linux" is
+ * enabled; this also requires at least one distro to be registered, since
+ * `wsl.exe --status` fails with no distros installed.
+ */
+export function isWsl2Available(): boolean {
+  if (os.platform() !== 'win32') {
+    return false;
+  }
+  try {
+    execFileSync('wsl.exe', ['--status'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Detect the best available isolation backend for the current platform.
  *
  * @returns The recommended isolation backend and availability info
@@ -84,7 +102,18 @@ export function detectIsolation(): SandboxDetectionResult {
     };
   }
 
-  // Windows or other platforms
+  if (platform === 'win32') {
+    const available = isWsl2Available();
+    return {
+      backend: 'wsl2',
+      available,
+      message: available
+        ? 'WSL2 is available for sandboxed execution (isolated from the Windows host)'
+        : 'WSL2 not found, or no distro is registered. Install with: wsl --install',
+    };
+  }
+
+  // Other platforms
   return {
     backend: 'none',
     available: false,
@@ -104,6 +133,8 @@ export function isIsolationAvailable(backend: IsolationBackend): boolean {
       return isSeatbeltAvailable();
     case 'bwrap':
       return isBwrapAvailable();
+    case 'wsl2':
+      return isWsl2Available();
     case 'none':
       return true;
     default:

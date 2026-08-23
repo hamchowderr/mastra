@@ -77,8 +77,9 @@ const response = await agent.generate('Run npm install')
   },
   {
     name: 'isolation',
-    type: "'none' | 'seatbelt' | 'bwrap'",
-    description: "Native OS sandboxing backend. 'seatbelt' for macOS, 'bwrap' for Linux.",
+    type: "'none' | 'seatbelt' | 'bwrap' | 'wsl2'",
+    description:
+      "Native OS sandboxing backend. 'seatbelt' for macOS, 'bwrap' for Linux, 'wsl2' for Windows (requires the target WSL2 distro to have interop disabled — see NativeSandboxConfig.wslDistro).",
     isOptional: true,
     defaultValue: "'none'",
   },
@@ -100,7 +101,7 @@ const response = await agent.generate('Run npm install')
 
 ## `NativeSandboxConfig`
 
-Configuration options for native OS sandboxing (used with `isolation: 'seatbelt'` or `'bwrap'`).
+Configuration options for native OS sandboxing (used with `isolation: 'seatbelt'`, `'bwrap'`, or `'wsl2'`).
 
 <PropertiesTable
   content={[
@@ -142,6 +143,14 @@ Configuration options for native OS sandboxing (used with `isolation: 'seatbelt'
     description: 'Allow read access to standard system binary paths (/bin, /usr/bin, etc.).',
     isOptional: true,
     defaultValue: 'true',
+  },
+  {
+    name: 'wslDistro',
+    type: 'string',
+    description:
+      "WSL2 distro to run commands in (Windows only, isolation: 'wsl2'). The distro must have WSL interop disabled — add `[interop]\\nenabled=false` to its `/etc/wsl.conf` and restart it (`wsl --terminate <distro>`) — or `start()` throws `IsolationUnavailableError`: without that, a sandboxed command can invoke a Windows .exe by full path and step around the VM boundary entirely. When `bwrap` is also installed inside the distro, commands are additionally layered through it for namespace/network isolation.",
+    isOptional: true,
+    defaultValue: "the system's default WSL distro",
   },
 ]}
 />
@@ -230,7 +239,7 @@ await handle.closeStdin()
 await handle.wait()
 ```
 
-When native isolation is enabled (`seatbelt` or `bwrap`), spawned processes are also wrapped with the same isolation backend.
+When native isolation is enabled (`seatbelt`, `bwrap`, or `wsl2`), spawned processes are also wrapped with the same isolation backend.
 
 See [`SandboxProcessManager` reference](/reference/workspace/process-manager) for the full API.
 
@@ -277,6 +286,7 @@ const devSandbox = new LocalSandbox({
 
 - **macOS**: Uses Seatbelt (`sandbox-exec`) for filesystem and network isolation
 - **Linux**: Uses Bubblewrap (`bwrap`) for namespace isolation
+- **Windows**: Runs commands inside a WSL2 distro, isolating them from the Windows host. If `bwrap` is also installed in that distro, commands are layered through it too, for the same namespace/network isolation the Linux backend gets natively.
 
 ```typescript
 // Detect the best available backend for this platform
@@ -287,7 +297,7 @@ console.log(detection)
 // Enable native sandboxing
 const sandbox = new LocalSandbox({
   workingDirectory: './workspace',
-  isolation: 'seatbelt', // or 'bwrap' on Linux
+  isolation: 'seatbelt', // or 'bwrap' on Linux, 'wsl2' on Windows
   nativeSandbox: {
     allowNetwork: false, // Block network access (default)
     readWritePaths: ['/tmp/extra'], // Additional writable paths
@@ -301,6 +311,24 @@ When isolation is enabled:
 - File reads are allowed everywhere (needed for system binaries)
 - Network access is blocked by default
 - Process isolation prevents affecting the host system
+
+### Windows: WSL2 setup
+
+`isolation: 'wsl2'` requires WSL2 installed with at least one distro registered, and that distro must have WSL interop disabled — otherwise a sandboxed command can invoke a Windows `.exe` by full path and step around the VM boundary entirely:
+
+```
+# Inside the target WSL2 distro
+echo -e "[interop]\nenabled=false" | sudo tee -a /etc/wsl.conf
+```
+
+```powershell
+# From Windows, restart the distro so the setting takes effect
+wsl --terminate <distro>
+```
+
+`LocalSandbox.start()` checks for this and throws `IsolationUnavailableError` if interop is still enabled. The commonly-documented runtime toggle (`/proc/sys/fs/binfmt_misc/WSLInterop`) is not a reliable substitute — only the persistent `wsl.conf` setting, applied via a distro restart, was found to actually block Windows binary execution.
+
+**Known limitation**: killing a `wsl2`-isolated process (on timeout, or via `kill()`) only terminates the `wsl.exe` frontend process on the Windows side. The command it launched keeps running under the distro's own Linux init until it exits on its own.
 
 ### Sandbox profile location
 

@@ -176,6 +176,12 @@ class LocalProcessHandle extends ProcessHandle {
  * On Windows, `process.kill(-pid)` doesn't work (no process groups), and
  * `detached: true` opens a new console window. Instead we use `taskkill /T`
  * which recursively kills the process tree by PID.
+ *
+ * Known gap for isolation: 'wsl2' — `taskkill` only reaches the `wsl.exe`
+ * frontend process on the Windows side. The command it launched keeps running
+ * under the Linux init inside the WSL2 VM, which `taskkill` has no visibility
+ * into. A killed/timed-out wsl2 process is orphaned inside the distro rather
+ * than actually terminated.
  */
 async function killProcessTree(pid: number, subprocess: ResultPromise, signal: NodeJS.Signals): Promise<void> {
   if (isWindows) {

@@ -7,6 +7,7 @@
 import { buildBwrapCommand } from './bubblewrap';
 import { buildSeatbeltCommand, generateSeatbeltProfile } from './seatbelt';
 import type { IsolationBackend, NativeSandboxConfig } from './types';
+import { buildWsl2Command } from './wsl2';
 
 export interface WrappedCommand {
   command: string;
@@ -20,6 +21,8 @@ export interface WrapCommandOptions {
   workspacePath: string;
   /** Pre-generated seatbelt profile content (optional, will be generated if not provided) */
   seatbeltProfile?: string;
+  /** Whether `bwrap` was detected inside the target WSL2 distro (checked once at sandbox start) */
+  wsl2BwrapAvailable?: boolean;
   /** Native sandbox configuration */
   config: NativeSandboxConfig;
 }
@@ -51,6 +54,12 @@ export function wrapCommand(command: string, options: WrapCommandOptions): Wrapp
 
     case 'bwrap': {
       return buildBwrapCommand(command, options.workspacePath, options.config);
+    }
+
+    case 'wsl2': {
+      return buildWsl2Command(command, options.workspacePath, options.config, {
+        bwrapAvailable: options.wsl2BwrapAvailable,
+      });
     }
 
     case 'none':

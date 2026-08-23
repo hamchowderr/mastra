@@ -14,9 +14,13 @@ import {
   isIsolationAvailable,
   isSeatbeltAvailable,
   isBwrapAvailable,
+  isWsl2Available,
   buildBwrapCommand,
   generateSeatbeltProfile,
   GENERATED_PROFILE_MARKER,
+  toWslPath,
+  buildWsl2Command,
+  checkWsl2Distro,
 } from './native-sandbox';
 
 /** Minimal local `WorkspaceFilesystem` stub that mounts `basePath` as a symlink. */
@@ -629,14 +633,15 @@ describe('LocalSandbox', () => {
       expect(typeof result.available).toBe('boolean');
     });
 
-    it('should return none on Windows', () => {
+    it('should detect wsl2 on Windows', () => {
       if (os.platform() !== 'win32') {
         return; // Skip on non-Windows
       }
 
       const result = detectIsolation();
-      expect(result.backend).toBe('none');
-      expect(result.available).toBe(false);
+      expect(result.backend).toBe('wsl2');
+      // WSL2 may or may not be installed
+      expect(typeof result.available).toBe('boolean');
     });
 
     it('should correctly report isIsolationAvailable', () => {
@@ -645,9 +650,15 @@ describe('LocalSandbox', () => {
       if (os.platform() === 'darwin') {
         expect(isIsolationAvailable('seatbelt')).toBe(true);
         expect(isIsolationAvailable('bwrap')).toBe(false);
+        expect(isIsolationAvailable('wsl2')).toBe(false);
       } else if (os.platform() === 'linux') {
         expect(isIsolationAvailable('seatbelt')).toBe(false);
+        expect(isIsolationAvailable('wsl2')).toBe(false);
         // bwrap may or may not be installed
+      } else if (os.platform() === 'win32') {
+        expect(isIsolationAvailable('seatbelt')).toBe(false);
+        expect(isIsolationAvailable('bwrap')).toBe(false);
+        // wsl2 may or may not be installed
       }
     });
   });
@@ -773,6 +784,43 @@ describe('LocalSandbox', () => {
         // 2. Test false case
         const profileFalse = generateSeatbeltProfile(workspacePath, { readOnly: false });
         expect(profileFalse).toContain(`(allow file-write* (subpath "${workspacePath}"))`);
+      });
+    });
+
+    describe('wsl2 command generation', () => {
+      it('should convert a Windows workspace path to its DrvFs equivalent', () => {
+        expect(toWslPath('C:\\Users\\foo\\bar')).toBe('/mnt/c/Users/foo/bar');
+        expect(toWslPath('D:\\workspace')).toBe('/mnt/d/workspace');
+      });
+
+      it('should build a wsl.exe command without bwrap layering by default', () => {
+        const { command, args } = buildWsl2Command('echo hi', 'C:\\Users\\foo\\workspace', {});
+        expect(command).toBe('wsl.exe');
+        expect(args).toEqual(['--cd', '/mnt/c/Users/foo/workspace', '--', 'sh', '-c', 'echo hi']);
+      });
+
+      it('should target a specific distro with -d', () => {
+        const { args } = buildWsl2Command('echo hi', 'C:\\workspace', { wslDistro: 'Ubuntu' });
+        expect(args.slice(0, 2)).toEqual(['-d', 'Ubuntu']);
+      });
+
+      it('should layer bwrap when the distro has it available', () => {
+        const { args } = buildWsl2Command('echo hi', 'C:\\workspace', {}, { bwrapAvailable: true });
+        const innerCommand = args.at(-1)!;
+        expect(innerCommand).toContain('bwrap');
+        expect(innerCommand).toContain("'echo hi'");
+      });
+
+      it('should translate readOnlyPaths/readWritePaths to DrvFs form before layering bwrap', () => {
+        const { args } = buildWsl2Command(
+          'echo hi',
+          'C:\\workspace',
+          { readWritePaths: ['C:\\data'] },
+          { bwrapAvailable: true },
+        );
+        const innerCommand = args.at(-1)!;
+        expect(innerCommand).toContain('/mnt/c/data');
+        expect(innerCommand).not.toContain('C:\\data');
       });
     });
   });
@@ -1851,6 +1899,87 @@ describe('LocalSandbox', () => {
       // Hidden file should still be there
       const content = await fs.readFile(path.join(hostPath, '.hidden'), 'utf-8');
       expect(content).toBe('secret');
+    });
+  });
+
+  // ===========================================================================
+  // Native Sandboxing - WSL2 (Windows only)
+  // ===========================================================================
+  describe('wsl2 isolation (Windows)', () => {
+    /** Skip guard: WSL2 must be installed AND the default distro must have interop disabled. */
+    async function wsl2Ready(): Promise<boolean> {
+      if (os.platform() !== 'win32' || !isWsl2Available()) return false;
+      const { interopDisabled } = await checkWsl2Distro();
+      return interopDisabled;
+    }
+
+    it('should refuse to start when WSL interop is enabled', async () => {
+      if (os.platform() !== 'win32' || !isWsl2Available()) return;
+      const { interopDisabled } = await checkWsl2Distro();
+      if (interopDisabled) return; // Can't exercise the rejection path when it's already disabled
+
+      const wsl2Sandbox = new LocalSandbox({
+        workingDirectory: tempDir,
+        isolation: 'wsl2',
+      });
+
+      await expect(wsl2Sandbox._start()).rejects.toThrow(IsolationUnavailableError);
+    });
+
+    it('should execute commands inside the WSL2 distro', async () => {
+      if (!(await wsl2Ready())) return;
+
+      const wsl2Sandbox = new LocalSandbox({
+        workingDirectory: tempDir,
+        isolation: 'wsl2',
+      });
+
+      await wsl2Sandbox._start();
+
+      const result = await wsl2Sandbox.executeCommand('echo', ['Hello from wsl2']);
+      expect(result.success).toBe(true);
+      expect(result.stdout.trim()).toBe('Hello from wsl2');
+
+      await wsl2Sandbox._destroy();
+    });
+
+    it('should see the Windows workspace directory via DrvFs', async () => {
+      if (!(await wsl2Ready())) return;
+
+      const wsl2Sandbox = new LocalSandbox({
+        workingDirectory: tempDir,
+        isolation: 'wsl2',
+      });
+
+      await wsl2Sandbox._start();
+
+      const writeResult = await wsl2Sandbox.executeCommand('sh', ['-c', `echo "wsl2 content" > wsl2-test.txt`]);
+      expect(writeResult.success).toBe(true);
+
+      // Read the file back from the Windows side to confirm it landed in the real workspace,
+      // not just somewhere inside the distro's own filesystem.
+      const content = await fs.readFile(path.join(tempDir, 'wsl2-test.txt'), 'utf-8');
+      expect(content.trim()).toBe('wsl2 content');
+
+      await wsl2Sandbox._destroy();
+    });
+
+    it('should not be able to reach a Windows executable by full path', async () => {
+      if (!(await wsl2Ready())) return;
+
+      const wsl2Sandbox = new LocalSandbox({
+        workingDirectory: tempDir,
+        isolation: 'wsl2',
+      });
+
+      await wsl2Sandbox._start();
+
+      const windir = process.env.SystemRoot ?? 'C:\\Windows';
+      const cmdPath = toWslPath(path.join(windir, 'System32', 'cmd.exe'));
+      const result = await wsl2Sandbox.executeCommand(cmdPath, ['/c', 'echo escaped']);
+      expect(result.success).toBe(false);
+
+      await wsl2Sandbox._destroy();
     });
   });
 

@@ -132,7 +132,7 @@ export const startServerTool = createTool({
 ```typescript
 const sandbox = new LocalSandbox({
   workingDirectory: './workspace',
-  isolation: 'seatbelt', // Use 'bwrap' on Linux
+  isolation: 'seatbelt', // Use 'bwrap' on Linux, 'wsl2' on Windows
   nativeSandbox: {
     allowNetwork: false,
     readOnlyPaths: ['./reference-data'],
@@ -140,7 +140,7 @@ const sandbox = new LocalSandbox({
 })
 ```
 
-Enable native isolation to restrict filesystem and network access at the operating-system level. On macOS, native isolation uses Seatbelt (`sandbox-exec`). On Linux, it uses Bubblewrap (`bwrap`). Use `LocalSandbox.detectIsolation()` to check whether Seatbelt or Bubblewrap is available on the current operating system.
+Enable native isolation to restrict filesystem and network access at the operating-system level. On macOS, native isolation uses Seatbelt (`sandbox-exec`). On Linux, it uses Bubblewrap (`bwrap`). On Windows, it runs commands inside a WSL2 distro — see [WSL2 setup](/reference/workspace/local-sandbox#windows-wsl2-setup) for the one-time distro configuration this requires. Use `LocalSandbox.detectIsolation()` to check which backend is available on the current operating system.
 
 The [`nativeSandbox` options](/reference/workspace/local-sandbox#nativesandboxconfig) control network access, read-only or writable paths, write access to the working directory, and system binaries. You can also provide a custom Seatbelt profile or Bubblewrap arguments. See [`LocalSandbox`](/reference/workspace/local-sandbox) for the full configuration.
 

@@ -9,8 +9,9 @@
  * - 'none': No sandboxing (direct execution on host)
  * - 'seatbelt': macOS sandbox-exec (built-in)
  * - 'bwrap': Linux bubblewrap (requires installation)
+ * - 'wsl2': Windows Subsystem for Linux 2 (requires installation + a distro with WSL interop disabled)
  */
-export type IsolationBackend = 'none' | 'seatbelt' | 'bwrap';
+export type IsolationBackend = 'none' | 'seatbelt' | 'bwrap' | 'wsl2';
 
 /**
  * Configuration for native sandboxing.
@@ -62,6 +63,16 @@ export interface NativeSandboxConfig {
    * The command and its args are appended after these.
    */
   bwrapArgs?: string[];
+
+  /**
+   * WSL2 distro to run commands in (Windows only, isolation: 'wsl2').
+   * The distro must have WSL interop disabled (`/etc/wsl.conf`'s `[interop] enabled=false`,
+   * applied via a distro restart — `wsl --terminate <distro>`) or `LocalSandbox` refuses to
+   * start: without it, a sandboxed command can invoke Windows binaries directly by full path
+   * and step around the VM boundary entirely.
+   * @default the system's default WSL distro
+   */
+  wslDistro?: string;
 
   /**
    * Restrict the sandbox's working directory to read-only access.
